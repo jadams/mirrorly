@@ -1,0 +1,136 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+STAGES=(stage0 stage1 stage2)
+
+cleanup() {
+    RC="$?"
+    trap - ERR TERM HUP INT QUIT EXIT
+    if [ "${RC}" -eq "0" ]; then
+        rm -rf "${TMP_DIR}"
+    fi
+    exit "${RC}"
+}
+
+test_req()
+{
+    reqs=(curl gunzip awk grep parallel)
+    for req in "${reqs[@]}"; do
+        if ! which "${req}" &>/dev/null; then echo "${req}" not installed; exit 1; fi
+    done
+}
+
+include()
+{
+    . mirrorly.conf
+}
+
+setup_dirs()
+{
+    mkdir -p "${TMP_DIR}"
+    mkdir -p "${MIRROR_DIR}"
+}
+
+get_mirrors_from_list()
+{
+    readarray -t MIRROR_LIST < "${MIRROR_LIST}"
+    MIRROR_LIST_LEN="${#MIRROR_LIST[@]}"
+}
+
+get_package_files()
+{
+    local CURRENT_MIRROR=(${1})
+    local CURRENT_MIRROR_LEN="${#CURRENT_MIRROR[@]}"
+    local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
+    if [ "${CURRENT_MIRROR[0]}" != "deb" ]; then
+        echo ERROR in "${CURRENT_MIRROR[@]}" 1>&2
+        exit 2
+    fi
+    PACKAGE_FILES=()
+    local j
+    for (( j=3; j<"${CURRENT_MIRROR_LEN}"; j++ )); do
+        CURRENT_MIRROR_J_TR=$(echo "${CURRENT_MIRROR[$j]}" | tr '/' '-')
+        CURRENT_MIRROR_PACKAGE_FILE="${CURRENT_MIRROR_DISTRO}-${CURRENT_MIRROR[2]}-${CURRENT_MIRROR_J_TR}-Packages"
+        # remove this if
+        if [ ! -f "${TMP_DIR}/${CURRENT_MIRROR_PACKAGE_FILE}" ]; then
+            curl -f#SL "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.gz" | gunzip > "${TMP_DIR}/${CURRENT_MIRROR_PACKAGE_FILE}"
+        fi
+        PACKAGE_FILES+=("${CURRENT_MIRROR_PACKAGE_FILE}")
+    done
+    for PACKAGE_FILENAME in "${PACKAGE_FILES[@]}"; do
+        paste <(awk '/^Size. /{print $2}' "${TMP_DIR}/${PACKAGE_FILENAME}") <(awk -v url="${CURRENT_MIRROR[1]}" '/^Filename. /{print url"\t"$2}' "${TMP_DIR}/${PACKAGE_FILENAME}") >> "${TMP_DIR}/Sizes"
+        paste <(awk '/^MD5sum. /{print $2}' "${TMP_DIR}/${PACKAGE_FILENAME}") <(awk -v distro="${CURRENT_MIRROR_DISTRO}" '/^Filename. /{print distro"/"$2}' "${TMP_DIR}/${PACKAGE_FILENAME}") >> "${TMP_DIR}/MD5sums"
+    done
+}
+
+get_file_from_repo()
+{
+    local SIZE="${1}"
+    local MIRROR="${2}"
+    local FILENAME="${3}"
+    local DISTRO="${MIRROR##*\/}"
+    local OUTPUT="${MIRROR_DIR}/${DISTRO}/${FILENAME}"
+    local URL="${MIRROR}/${FILENAME}"
+    if [ ! -f "${OUTPUT}" ]; then
+        curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
+    fi
+    local STAT=$(stat -c %s "${OUTPUT}")
+    if [ "${STAT}" -ne "${SIZE}" ]; then
+        echo -n SIZE NOT MATCHED: 1>&2
+        basename "${FILENAME}" 1>&2
+        rm "${OUTPUT}"
+        return 1
+    else
+        return 0
+    fi
+}
+
+stage0()
+{
+    test_req
+    include
+    setup_dirs
+    get_mirrors_from_list
+}
+
+stage1()
+{
+    echo Collecting packages...
+
+    local i
+    for (( i=0; i<$MIRROR_LIST_LEN; i++ )); do
+        echo "${MIRROR_LIST[$i]}"
+        get_package_files "${MIRROR_LIST[$i]}"
+    done
+
+    echo -n "Checking or downloading "
+    wc -l ${TMP_DIR}/Sizes | cut -d' ' -f1 | tr -d '\n'
+    echo " files"
+
+    export MIRROR_DIR
+    export -f get_file_from_repo
+    parallel \
+        --arg-file ${TMP_DIR}/Sizes \
+        --colsep '\t' \
+        --retries ${NUM_RETRIES} \
+        --joblog ${TMP_DIR}/joblog \
+        --bar \
+        get_file_from_repo
+}
+
+stage2()
+{
+    echo stage2
+    STAGES+=("stage2")
+}
+
+main()
+{
+    trap cleanup EXIT TERM HUP INT QUIT
+    for STAGE in "${STAGES[@]}"; do
+        "${STAGE}"
+    done
+}
+
+main
+
