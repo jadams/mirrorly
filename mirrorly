@@ -29,7 +29,13 @@ test_req()
 
 include()
 {
-    . mirrorly.conf
+    if [ -f mirrorly.conf ]; then
+        . mirrorly.conf
+    elif [ -f /etc/mirrorly.conf ]; then
+        . /etc/mirrorly.conf
+    else
+        echo "can't find mirrorly.conf in ${PWD} or /etc" 2>&1
+    fi
 }
 
 setup_dirs()
