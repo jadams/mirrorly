@@ -4,11 +4,11 @@ set -Eeuo pipefail
 cleanup() {
     RC="$?"
     trap - ERR TERM HUP INT QUIT EXIT
-    rm "${TMP_DIR}"/*-Packages
+    rm "${TMP_DIR}"/*-Packages 2>/dev/null || true
     if [ "${RC}" = "0" ]; then
-        rm "${TMP_DIR}/pool-Args"
-        rm "${TMP_DIR}/find-Sizes"
-        mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS"
+        rm "${TMP_DIR}/pool-Args" 2>/dev/null || true
+        rm "${TMP_DIR}/find-Sizes" 2>/dev/null || true
+        mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" 2>/dev/null || true
     fi
     exit "${RC}"
 }
@@ -34,8 +34,9 @@ include()
 
 setup_dirs()
 {
-    mkdir -p "${TMP_DIR}"
-    mkdir -p "${MIRROR_DIR}"
+    mkdir -p "${TMP_DIR}" || exit 2
+    mkdir -p "${MIRROR_DIR}" || exit 2
+    touch "${MIRROR_DIR}/testfile" 2>/dev/null || (echo cannot write to "${MIRROR_DIR}" 1>&2; exit 2) && rm "${MIRROR_DIR}/testfile"
 }
 
 get_mirrors_from_list()
@@ -60,7 +61,7 @@ get_package_file_list()
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
         if [ "${CURRENT_MIRROR[0]}" != "deb" ]; then
             echo ERROR in "${CURRENT_MIRROR[@]}" 1>&2
-            exit 2
+            exit 3
         else
             echo -n "${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
         fi
