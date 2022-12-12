@@ -63,7 +63,7 @@ get_package_file_list()
             echo ERROR in "${CURRENT_MIRROR[@]}" 1>&2
             exit 3
         else
-            echo -n "${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
+            echo -n "  ${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
         fi
         PACKAGE_FILES=()
         local j
@@ -86,7 +86,7 @@ get_package_file_list()
 get_local_file_list()
 {
     for DISTRO in "${DISTROS[@]}"; do
-        echo "${MIRROR_DIR}/${DISTRO}"
+        echo "  ${MIRROR_DIR}/${DISTRO}"
         if [ -d "${MIRROR_DIR}/${DISTRO}/pool" ]; then
             (cd "${MIRROR_DIR}" && find "${DISTRO}/pool" -type f -ls | awk '{print $7"\t"$11}' >> "${TMP_DIR}/find-TMP")
         else
@@ -126,7 +126,7 @@ get_release_files()
         local CURRENT_MIRROR_LEN="${#CURRENT_MIRROR[@]}"
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
         local RELEASE_FILES=(InRelease Release Release.gpg)
-        echo -n "${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
+        echo -n "  ${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
         for FILE in "${RELEASE_FILES[@]}"; do
             local URL="${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${FILE}"
             local OUTPUT="${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/${FILE}"
@@ -173,7 +173,7 @@ stage0()
 
 stage1()
 {
-    echo "Collecting packages..."
+    echo "Collecting package indices..."
     get_package_file_list
 
     echo "Checking local files..."
@@ -190,7 +190,7 @@ stage1()
     if [ "${NUM_DOWNLOAD_FILES}" = "0" ]; then
         echo "No files to download"
     else
-        echo "Downloading ${NUM_DOWNLOAD_FILES} files"
+        echo "Downloading ${NUM_DOWNLOAD_FILES} files..."
         export MIRROR_DIR
         export -f get_file_from_repo
         parallel \
@@ -216,7 +216,7 @@ stage2()
     if [ "${NUM_DELETE_FILES}" = "0" ]; then
         echo "No files to remove"
     else
-        echo "Removing ${NUM_DELETE_FILES} files"
+        echo "Removing ${NUM_DELETE_FILES} files..."
         export MIRROR_DIR
         parallel \
             --arg-file "${TMP_DIR}"/need-to-remove \
