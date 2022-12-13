@@ -45,6 +45,16 @@ setup_dirs()
     touch "${MIRROR_DIR}/testfile" 2>/dev/null || (echo cannot write to "${MIRROR_DIR}" 1>&2; exit 2) && rm "${MIRROR_DIR}/testfile"
 }
 
+usage()
+{
+    echo "Usage: ${0} [-h] this help message
+                  [-1] only run stage 1
+                  [-2] only run stage 2
+                  [-c] check MD5sums of all files"
+    trap - ERR TERM HUP INT QUIT EXIT
+    exit 0
+}
+
 get_mirrors_from_list()
 {
     readarray -t MIRROR_LIST < "${MIRROR_LIST_FILE}"
@@ -169,6 +179,16 @@ get_release_files()
     done
 }
 
+check_md5sums()
+{
+    if [ -f "${MIRROR_DIR}/MD5SUMS" ]; then
+        (cd "${MIRROR_DIR}"; parallel --bar 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
+    else
+        echo "${MIRROR_DIR}/MD5SUMS does not exist, please do a successful sync first" 1>&2
+        exit 5
+    fi
+}
+
 stage0()
 {
     test_req
@@ -237,10 +257,21 @@ stage2()
 main()
 {
     trap cleanup EXIT TERM HUP INT QUIT
-    STAGES=(stage0 stage1 stage2)
+    STAGES=(stage0)
+    if [ "${1}" = "-h" ]; then
+        STAGES=(usage)
+    elif [ "${1}" = "-c" ]; then
+        STAGES+=(check_md5sums)
+    elif [ "${1}" = "-1" ]; then
+        STAGES+=(stage1)
+    elif [ "${1}" = "-2" ]; then
+        STAGES+=(stage2)
+    else
+        STAGES+=(stage1 stage2)
+    fi
     for STAGE in "${STAGES[@]}"; do
         "${STAGE}"
     done
 }
 
-main
+main $@
