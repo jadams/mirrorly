@@ -169,7 +169,7 @@ get_release_files()
                     if [ -f "${OUTPUT}" ]; then
                         local L_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
                         if [ "${MD5SUM}" != "${L_MD5SUM}" ]; then
-                            rm ${OUTPUT}
+                            rm "${OUTPUT}"
                         fi
                     else
                         curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
@@ -299,4 +299,4 @@ main()
     fi
 }
 
-main $@
+main "$@"
