@@ -74,7 +74,6 @@ get_mirrors_from_list()
         DISTROS+=("${CURRENT_MIRROR_DISTRO}")
     done
     IFS=" " read -r -a DISTROS <<< "$(echo "${DISTROS[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-    echo "${DISTROS[@]}"
 }
 
 get_package_file_list()
