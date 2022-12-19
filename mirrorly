@@ -1,21 +1,28 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-cleanup() {
-    RC="$?"
-    trap - ERR TERM HUP INT QUIT EXIT
+cleanup()
+{
     rm "${TMP_DIR}"/*-Packages 2>/dev/null || true
+    rm "${TMP_DIR}"/*-Release 2>/dev/null || true
     if [ "${RC}" = "0" ]; then
         rm "${TMP_DIR}/pool-Args" 2>/dev/null || true
         rm "${TMP_DIR}/find-Sizes" 2>/dev/null || true
         mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" 2>/dev/null || true
     fi
+}
+
+trap_handler()
+{
+    RC="$?"
+    trap - ERR TERM HUP INT QUIT EXIT
+    cleanup
     exit "${RC}"
 }
 
 test_req()
 {
-    reqs=(rm mkdir curl gunzip paste awk parallel touch sort uniq head cut tr wc)
+    reqs=(rm mkdir curl gunzip paste awk parallel touch sort uniq head cut tr wc cmp)
     for req in "${reqs[@]}"; do
         if ! which "${req}" &>/dev/null; then echo "${req}" not installed 1>&2; exit 1; fi
     done
@@ -81,6 +88,7 @@ get_package_file_list()
         else
             echo -n "  ${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
         fi
+        curl -fsSL -o "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release" "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/Release"
         PACKAGE_FILES=()
         local j
         for (( j=3; j<"${CURRENT_MIRROR_LEN}"; j++ )); do
@@ -148,6 +156,7 @@ get_release_files()
             local OUTPUT="${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/${FILE}"
             curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
         done
+        if ! cmp -s "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release"; then REDO=1; fi
         local j
         for (( j=3; j<"${CURRENT_MIRROR_LEN}"; j++ )); do
             local DIST_FILES=("Contents-${ARCH}.gz" "${CURRENT_MIRROR[$j]}/Contents-${ARCH}.gz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.gz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.xz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Release" "${CURRENT_MIRROR[$j]}/cnf/Commands-${ARCH}.xz")
@@ -204,6 +213,7 @@ stage1a()
 
     echo "Checking local files..."
     get_local_file_list
+}
 
 stage1b()
 {
@@ -229,7 +239,6 @@ stage1b()
             --bar \
             get_file_from_repo
     fi
-
 }
 
 stage1()
@@ -264,15 +273,16 @@ stage2()
 
 main()
 {
-    trap cleanup EXIT TERM HUP INT QUIT
+    trap trap_handler EXIT TERM HUP INT QUIT
     STAGES=(stage0)
-    if [ "${1}" = "-h" ]; then
+    REDO=0
+    if [ "${1-}" = "-h" ]; then
         STAGES=(usage)
-    elif [ "${1}" = "-c" ]; then
+    elif [ "${1-}" = "-c" ]; then
         STAGES+=(check_md5sums)
-    elif [ "${1}" = "-1" ]; then
+    elif [ "${1-}" = "-1" ]; then
         STAGES+=(stage1)
-    elif [ "${1}" = "-2" ]; then
+    elif [ "${1-}" = "-2" ]; then
         STAGES+=(stage1a stage2)
     else
         STAGES+=(stage1 stage2)
@@ -280,6 +290,13 @@ main()
     for STAGE in "${STAGES[@]}"; do
         "${STAGE}"
     done
+    if [ "${REDO}" != "0" ]; then
+        echo Release file has changed, rerunning...
+        RC=0
+        cleanup
+        stage1
+        stage2
+    fi
 }
 
 main $@
