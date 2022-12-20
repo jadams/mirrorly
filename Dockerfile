@@ -7,7 +7,8 @@ RUN apt-get update \
 ADD mirrorly /usr/local/bin/mirrorly
 ADD mirrorly.conf /etc/mirrorly.conf
 ADD mirror.list /etc/apt/mirror.list
-RUN useradd -d /mirror -m -s /bin/bash -U mirror
+RUN sed 's/^UMASK.*/UMASK\t\t002/g' /etc/login.defs \
+ && useradd -d /mirror -m -s /bin/bash -U mirror
 USER mirror
 VOLUME [ "/mirror" ]
 ENTRYPOINT [ "mirrorly" ]
