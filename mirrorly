@@ -131,7 +131,8 @@ get_file_from_repo()
     local OUTPUT="${MIRROR_DIR}/${DISTRO}/${FILENAME}"
     local URL="${MIRROR}/${FILENAME}"
     if [ ! -f "${OUTPUT}" ]; then
-        curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
+        mkdir -p "$(dirname "${OUTPUT}")"
+        curl -fsSL -o "${OUTPUT}" "${URL}"
     fi
     local STAT=0
     STAT=$(stat -c %s "${OUTPUT}" 2>/dev/null || echo "0")
@@ -158,7 +159,8 @@ get_release_files()
         for FILE in "${RELEASE_FILES[@]}"; do
             local URL="${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${FILE}"
             local OUTPUT="${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/${FILE}"
-            curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
+            mkdir -p "$(dirname "${OUTPUT}")"
+            curl -fsSL -o "${OUTPUT}" "${URL}"
         done
         if ! cmp -s "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release"; then REDO=1; fi
         local j
@@ -178,7 +180,8 @@ get_release_files()
                         fi
                     fi
                     if [ ! -f "${OUTPUT}" ]; then
-                        curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
+                        mkdir -p "$(dirname "${OUTPUT}")"
+                        curl -fsSL -o "${OUTPUT}" "${URL}"
                     fi
                     local DL_MD5SUM=0
                     DL_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
