@@ -158,7 +158,7 @@ get_file_from_repo()
             echo "${FILENAME}" 1>&2
             rm "${OUTPUT}" 2>/dev/null
             RC=1
-            RETURN $RC
+            return $RC
         else
             RC=0
         fi
