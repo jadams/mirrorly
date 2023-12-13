@@ -7,9 +7,9 @@ cleanup()
     rm "${TMP_DIR}"/*-Packages 2>/dev/null || true
     rm "${TMP_DIR}"/*-Release 2>/dev/null || true
     if [ "${RC}" = "0" ]; then
-        rm "${TMP_DIR}/pool-Args" 2>/dev/null || true
-        rm "${TMP_DIR}/find-Sizes" 2>/dev/null || true
-        sort "${TMP_DIR}/pool-MD5sums" | uniq > "${MIRROR_DIR}/MD5SUMS" && rm "${TMP_DIR}/pool-MD5sums" 2>/dev/null || true
+        rm "${TMP_DIR}/pool-Sizes" 2>/dev/null || true
+        rm "${TMP_DIR}/file-Sizes" 2>/dev/null || true
+        mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" || true
     fi
 }
 
@@ -23,7 +23,7 @@ trap_handler()
 
 test_req()
 {
-    reqs=(rm mkdir curl gunzip paste awk parallel touch sort uniq head cut tr wc cmp)
+    reqs=(awk bash cat curl cut dirname echo find gunzip head md5sum mkdir parallel paste rm sort touch tr uniq wc)
     for req in "${reqs[@]}"; do
         if ! which "${req}" &>/dev/null; then echo "${req}" not installed 1>&2; exit 1; fi
     done
@@ -51,6 +51,7 @@ setup_dirs()
     mkdir -p "${TMP_DIR}" || exit 2
     mkdir -p "${MIRROR_DIR}" || exit 2
     touch "${MIRROR_DIR}/testfile" 2>/dev/null || (echo cannot write to "${MIRROR_DIR}" 1>&2; exit 2) && rm "${MIRROR_DIR}/testfile"
+    touch "${TMP_DIR}/testfile" 2>/dev/null || (echo cannot write to "${TMP_DIR}" 1>&2; exit 2) && rm "${TMP_DIR}/testfile"
 }
 
 usage()
@@ -103,24 +104,29 @@ get_package_file_list()
         done
         echo
         for PACKAGE_FILENAME in "${PACKAGE_FILES[@]}"; do
-            paste <(awk '/^Size. /{print $2}' "${TMP_DIR}/${PACKAGE_FILENAME}") <(awk -v url="${CURRENT_MIRROR[1]}" -v distro="${CURRENT_MIRROR_DISTRO}" '/^Filename. /{print url"\t"distro"\t"$2}' "${TMP_DIR}/${PACKAGE_FILENAME}") >> "${TMP_DIR}/pool-TMP"
-            paste <(awk '/^MD5sum. /{print $2}' "${TMP_DIR}/${PACKAGE_FILENAME}") <(awk -v distro="${CURRENT_MIRROR_DISTRO}" '/^Filename. /{print distro"/"$2}' "${TMP_DIR}/${PACKAGE_FILENAME}") >> "${TMP_DIR}/pool-MD5sums"
+            paste <(awk '/^Size. /{print $2}' "${TMP_DIR}/${PACKAGE_FILENAME}") <(awk -v url="${CURRENT_MIRROR[1]}" -v distro="${CURRENT_MIRROR_DISTRO}" '/^Filename. /{print url"\t"distro"\t"$2}' "${TMP_DIR}/${PACKAGE_FILENAME}") >> "${TMP_DIR}/pool-TMP-Sizes"
+            paste <(awk '/^MD5sum. /{print $2}' "${TMP_DIR}/${PACKAGE_FILENAME}") <(awk -v distro="${CURRENT_MIRROR_DISTRO}" '/^Filename. /{print distro"/"$2}' "${TMP_DIR}/${PACKAGE_FILENAME}") >> "${TMP_DIR}/pool-TMP-MD5sums"
         done
     done
-    sort "${TMP_DIR}/pool-TMP" | uniq > "${TMP_DIR}/pool-Args" && rm "${TMP_DIR}/pool-TMP"
+    sort -k2 "${TMP_DIR}/pool-TMP-Sizes" | uniq > "${TMP_DIR}/pool-Sizes" && rm "${TMP_DIR}/pool-TMP-Sizes"
+    sort -k2 "${TMP_DIR}/pool-TMP-MD5sums" | uniq > "${TMP_DIR}/pool-MD5sums" && rm "${TMP_DIR}/pool-TMP-MD5sums"
 }
 
 get_local_file_list()
 {
-    for DISTRO in "${DISTROS[@]}"; do
-        echo "  ${MIRROR_DIR}/${DISTRO}"
-        if [ -d "${MIRROR_DIR}/${DISTRO}/pool" ]; then
-            (cd "${MIRROR_DIR}" && find "${DISTRO}/pool" -type f -ls | awk '{print $7"\t"$11}' >> "${TMP_DIR}/find-TMP")
-        else
-            touch "${TMP_DIR}/find-TMP"
-        fi
-    done
-    sort "${TMP_DIR}/find-TMP" | uniq > "${TMP_DIR}/find-Sizes" && rm "${TMP_DIR}/find-TMP"
+    if [ -f "${MIRROR_DIR}/file-Sizes" ]; then
+        mv "${MIRROR_DIR}/file-Sizes" "${TMP_DIR}/file-Sizes"
+    else
+        for DISTRO in "${DISTROS[@]}"; do
+            echo "  ${MIRROR_DIR}/${DISTRO}"
+            if [ -d "${MIRROR_DIR}/${DISTRO}/pool" ]; then
+                (cd "${MIRROR_DIR}" && find "${DISTRO}/pool" -type f -ls | awk '{print $7"\t"$11}' >> "${TMP_DIR}/find-TMP-Sizes")
+            else
+                touch "${TMP_DIR}/find-TMP-Sizes"
+            fi
+        done
+        sort -k2 "${TMP_DIR}/find-TMP-Sizes" | uniq > "${TMP_DIR}/file-Sizes" && rm "${TMP_DIR}/find-TMP-Sizes"
+    fi
 }
 
 get_file_from_repo()
@@ -149,6 +155,7 @@ get_file_from_repo()
         RC=1
         return $RC
     else
+        echo -e "${SIZE}\t${OUTPUT}" >> "${TMP_DIR}/download-Sizes"
         RC=0
     fi
     if [ ! -z "${5}" ]; then
@@ -160,6 +167,7 @@ get_file_from_repo()
             RC=1
             return $RC
         else
+            echo -e "${DL_MD5SUM}\t${OUTPUT}" >> "${TMP_DIR}/download-MD5sums"
             RC=0
         fi
     fi
@@ -184,7 +192,7 @@ get_release_files()
         done
         local EXCLUDE=""
         EXCLUDE=$(awk -v arch="${ARCH}" '/Architectures/ {for (i=2; i<NF; i++) if ($i!=arch) printf $i "|"; print $NF}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release")
-        awk -v excl=${EXCLUDE} -v url="${CURRENT_MIRROR[1]}" -v distro="${CURRENT_MIRROR_DISTRO}" -v rel="${CURRENT_MIRROR[2]}" '/MD5/{flag=1;next}/SHA1/{flag=0}flag && $0 !~ excl {print $2"\t"url"\t"distro"\tdists/"rel"/"$3"\t"$1}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" >> "${TMP_DIR}/dists-MD5sums"
+        awk -v excl="${EXCLUDE}" -v url="${CURRENT_MIRROR[1]}" -v distro="${CURRENT_MIRROR_DISTRO}" -v rel="${CURRENT_MIRROR[2]}" '/MD5/{flag=1;next}/SHA1/{flag=0}flag && $0 !~ excl {print $2"\t"url"\t"distro"\tdists/"rel"/"$3"\t"$1}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" >> "${TMP_DIR}/dists-MD5sums"
         if ! cmp -s "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release"; then REDO=1; fi
         echo
     done
@@ -193,7 +201,7 @@ get_release_files()
 check_md5sums()
 {
     if [ -f "${MIRROR_DIR}/MD5SUMS" ]; then
-        (cd "${MIRROR_DIR}"; parallel --jobs 1000% --bar 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
+        (cd "${MIRROR_DIR}"; parallel --jobs 1000% --eta 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
     else
         echo "${MIRROR_DIR}/MD5SUMS does not exist, please do a successful sync first" 1>&2
         exit 5
@@ -220,10 +228,10 @@ stage1a()
 stage1b()
 {
     echo "Sorting list of files to download..."
-    if [ "$(wc -l "${TMP_DIR}/find-Sizes" | cut -d' ' -f1)" = "0" ]; then
-        cat "${TMP_DIR}/pool-Args" > "${TMP_DIR}/need-to-download"
+    if [ "$(wc -l "${TMP_DIR}/file-Sizes" | cut -d' ' -f1)" = "0" ]; then
+        cat "${TMP_DIR}/pool-Sizes" > "${TMP_DIR}/need-to-download"
     else
-        awk -F'\t' 'FNR==NR {a[$2]=$1; next} !($3"/"$4 in a) || a[$3"/"$4] != $1' "${TMP_DIR}/find-Sizes" "${TMP_DIR}/pool-Args" > "${TMP_DIR}/need-to-download"
+        awk -F'\t' 'FNR==NR {a[$2]=$1; next} !($3"/"$4 in a) || a[$3"/"$4] != $1' "${TMP_DIR}/file-Sizes" "${TMP_DIR}/pool-Sizes" > "${TMP_DIR}/need-to-download"
     fi
 
     local NUM_DOWNLOAD_FILES=0
@@ -233,15 +241,17 @@ stage1b()
     else
         echo "Downloading ${NUM_DOWNLOAD_FILES} files..."
         export MIRROR_DIR
+        export TMP_DIR
         export -f get_file_from_repo
         parallel \
             --arg-file "${TMP_DIR}"/need-to-download \
             --colsep '\t' \
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/download-joblog \
-            --bar \
+            --eta \
             --jobs 1000% \
             get_file_from_repo
+        # sort -k2 "${TMP_DIR}/download-Sizes" | uniq > "${MIRROR_DIR}/file-Sizes" && rm "${TMP_DIR}/download-Sizes"
     fi
 }
 
@@ -258,13 +268,14 @@ stage2a()
 
     echo "Downloading or checking files..."
     export MIRROR_DIR
+    export TMP_DIR
     export -f get_file_from_repo
     parallel \
         --arg-file "${TMP_DIR}"/dists-MD5sums \
         --colsep '\t' \
         --retries "${NUM_RETRIES}" \
         --joblog "${TMP_DIR}"/dist-joblog \
-        --bar \
+        --eta \
         --jobs 1000% \
         get_file_from_repo
 }
@@ -272,7 +283,7 @@ stage2a()
 stage2b()
 {
     echo "Sorting list of files to remove..."
-    awk -F'\t' 'FNR==NR {a[$3"/"$4]=$1; next} !($2 in a) || a[$2] != $1' "${TMP_DIR}/pool-Args" "${TMP_DIR}/find-Sizes" > "${TMP_DIR}/need-to-remove"
+    awk -F'\t' 'FNR==NR {a[$3"/"$4]=$1; next} !($2 in a) || a[$2] != $1' "${TMP_DIR}/pool-Sizes" "${TMP_DIR}/file-Sizes" > "${TMP_DIR}/need-to-remove"
 
     local NUM_DELETE_FILES=0
     NUM_DELETE_FILES="$(wc -l "${TMP_DIR}/need-to-remove" | cut -d' ' -f1 | tr -d '\n')"
@@ -286,7 +297,7 @@ stage2b()
             --colsep '\t' \
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/remove-joblog \
-            --bar \
+            --eta \
             --jobs 1000% \
             rm "${MIRROR_DIR}/{2}"
     fi
