@@ -139,46 +139,32 @@ get_file_from_repo()
     local MD5SUM="${5}"
     local OUTPUT="${MIRROR_DIR}/${DISTRO}/${FILENAME}"
     local URL="${MIRROR}/${FILENAME}"
-    local STATUS=""
     local STAT=0
     if [ ! -f "${OUTPUT}" ]; then
         mkdir -p "$(dirname "${OUTPUT}")"
         if [ $(curl -fsL -w "%{http_code}" -o "${OUTPUT}" "${URL}") = "404" ]; then
             RC=0
             exit "${RC}"
-        else
-            STATUS="+"
         fi
     fi
     STAT=$(stat -c %s "${OUTPUT}" 2>/dev/null || echo "0")
     if [ "${STAT}" -ne "${SIZE}" ]; then
         rm "${OUTPUT}" 2>/dev/null
-        STATUS="-"
         RC=1
-        echo -n "${STATUS}"
         exit "${RC}"
     else
-        if [ -z "${STATUS}" ]; then
-            STATUS="."
-        fi
         RC=0
     fi
     if [ ! -z "${MD5SUM}" ]; then
         DL_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
         if [ "${MD5SUM}" != "${DL_MD5SUM}" ]; then
             rm "${OUTPUT}" 2>/dev/null
-            STATUS="-"
             RC=2
-            echo -n "${STATUS}"
             exit "${RC}"
         else
-            if [ -z "${STATUS}" ]; then
-                STATUS="*"
-            fi
             RC=0
         fi
     fi
-    echo -n "${STATUS}"
     exit "${RC}"
 }
 
@@ -259,7 +245,6 @@ stage1b()
             --joblog "${TMP_DIR}"/download-joblog \
             --jobs 200% \
             get_file_from_repo
-        echo
         sort -k2 "${TMP_DIR}/file-Sizes" "${TMP_DIR}/need-to-download" | uniq > "${TMP_DIR}/combined-Sizes"
     fi
 }
@@ -286,7 +271,6 @@ stage2a()
         --joblog "${TMP_DIR}"/dist-joblog \
         --jobs 200% \
         get_file_from_repo
-    echo
 }
 
 stage2b()
@@ -343,7 +327,6 @@ main()
         STAGES+=(stage1 stage2)
     fi
     run_stages
-    echo "Need to redo: ${REDO}"
     if [ "${REDO}" != "0" ]; then
         echo Release file has changed, rerunning...
         cleanup
