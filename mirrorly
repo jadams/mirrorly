@@ -2,8 +2,13 @@
 set -Eeuo pipefail
 umask 022
 
+REDO=0
+
 cleanup()
 {
+    if [ -z "${TMP_DIR:-}" ]; then
+        return
+    fi
     if [ "${RC}" = "0" ]; then
         mv "${TMP_DIR}/current-Sizes" "${MIRROR_DIR}/SIZES" 2>/dev/null || true
         mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" 2>/dev/null || true
@@ -25,7 +30,7 @@ test_req()
 {
     reqs=(awk bash cat curl cut dirname echo find gunzip head md5sum mkdir parallel paste rm sort touch tr uniq wc)
     for req in "${reqs[@]}"; do
-        if ! which "${req}" &>/dev/null; then echo "${req}" not installed 1>&2; exit 1; fi
+        if ! command -v "${req}" &>/dev/null; then echo "${req}" not installed 1>&2; exit 1; fi
     done
     if ! readarray < /dev/null; then
         echo "bash does not support readarray" 1>&2; exit 1
@@ -131,7 +136,6 @@ get_local_file_list()
 
 get_file_from_repo()
 {
-    local RC=1
     local SIZE="${1}"
     local MIRROR="${2}"
     local DISTRO="${3}"
@@ -142,30 +146,23 @@ get_file_from_repo()
     local STAT=0
     if [ ! -f "${OUTPUT}" ]; then
         mkdir -p "$(dirname "${OUTPUT}")"
-        if [ $(curl -fsL -w "%{http_code}" -o "${OUTPUT}" "${URL}") = "404" ]; then
-            RC=0
-            exit "${RC}"
+        if [ "$(curl -fsL -w "%{http_code}" -o "${OUTPUT}" "${URL}")" = "404" ]; then
+            exit 0
         fi
     fi
     STAT=$(stat -c %s "${OUTPUT}" 2>/dev/null || echo "0")
     if [ "${STAT}" -ne "${SIZE}" ]; then
         rm "${OUTPUT}" 2>/dev/null
-        RC=1
-        exit "${RC}"
-    else
-        RC=0
+        exit 1
     fi
-    if [ ! -z "${MD5SUM}" ]; then
+    if [ -n "${MD5SUM}" ]; then
         DL_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
         if [ "${MD5SUM}" != "${DL_MD5SUM}" ]; then
             rm "${OUTPUT}" 2>/dev/null
-            RC=2
-            exit "${RC}"
-        else
-            RC=0
+            exit 2
         fi
     fi
-    exit "${RC}"
+    exit 0
 }
 
 get_release_files()
@@ -187,7 +184,7 @@ get_release_files()
         local EXCLUDE=""
         EXCLUDE=$(awk -v arch="${ARCH}" '/Architectures/ {for (i=2; i<NF; i++) if ($i!=arch) printf $i "|"; print $NF}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release")
         awk -v excl="${EXCLUDE}" -v url="${CURRENT_MIRROR[1]}" -v distro="${CURRENT_MIRROR_DISTRO}" -v rel="${CURRENT_MIRROR[2]}" '/MD5/{flag=1;next}/SHA1/{flag=0}flag && $0 !~ excl {print $2"\t"url"\t"distro"\tdists/"rel"/"$3"\t"$1}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" >> "${TMP_DIR}/dists-MD5sums"
-        if ! cmp -s "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release"; then REDO=1; fi
+        if ! cmp -s "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release"; then ((REDO++)); fi
         echo
     done
 }
@@ -312,8 +309,6 @@ run_stages()
 main()
 {
     trap trap_handler EXIT TERM HUP INT QUIT
-    RC=1
-    REDO=0
     STAGES=(stage0)
     if [ "${1-}" = "-h" ]; then
         STAGES=(usage)
@@ -328,6 +323,10 @@ main()
     fi
     run_stages
     if [ "${REDO}" != "0" ]; then
+        if (( REDO > NUM_RETRIES )); then
+            echo "Tried ${NUM_RETRIES} times, giving up" 1>&2
+            exit 254
+        fi
         echo Release file has changed, rerunning...
         cleanup
         main "$@"
