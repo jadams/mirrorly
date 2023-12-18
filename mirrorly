@@ -6,7 +6,7 @@ REDO=0
 
 cleanup()
 {
-    if [ -z "${TMP_DIR:-}" ]; then
+    if [ -z "${TMP_DIR-}" ]; then
         return
     fi
     if [ "${RC}" = "0" ]; then
@@ -192,7 +192,7 @@ get_release_files()
 check_md5sums()
 {
     if [ -f "${MIRROR_DIR}/MD5SUMS" ]; then
-        (cd "${MIRROR_DIR}"; parallel --jobs 200% 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
+        (cd "${MIRROR_DIR}"; parallel 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
     else
         echo "${MIRROR_DIR}/MD5SUMS does not exist, please do a successful sync first" 1>&2
         exit 5
@@ -240,7 +240,7 @@ stage1b()
             --colsep '\t' \
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/download-joblog \
-            --jobs 200% \
+            --jobs "${DL_JOBS}" \
             get_file_from_repo
         sort -k2 "${TMP_DIR}/file-Sizes" "${TMP_DIR}/need-to-download" | uniq > "${TMP_DIR}/combined-Sizes"
     fi
@@ -266,7 +266,7 @@ stage2a()
         --colsep '\t' \
         --retries "${NUM_RETRIES}" \
         --joblog "${TMP_DIR}"/dist-joblog \
-        --jobs 200% \
+        --jobs "${DL_JOBS}" \
         get_file_from_repo
 }
 
@@ -288,7 +288,7 @@ stage2b()
             --colsep '\t' \
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/remove-joblog \
-            --jobs 200% \
+            --jobs "${DL_JOBS}" \
             rm "${MIRROR_DIR}/{2}"
         awk 'NR==FNR{del[$0];next} !($0 in del)' "${TMP_DIR}/need-to-remove" "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
     fi
