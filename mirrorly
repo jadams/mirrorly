@@ -275,7 +275,7 @@ stage1b()
             --joblog "${TMP_DIR}"/download-joblog \
             --jobs "${DL_JOBS}" \
             get_file_from_repo || exit 6
-        awk '{print $1"\t"$3"/"$4}' "${TMP_DIR}/need-to-download" | sort -k2 file-Sizes - | uniq > "${TMP_DIR}/combined-Sizes"
+        awk '{print $1"\t"$3"/"$4}' "${TMP_DIR}/need-to-download" | sort -k2 "${TMP_DIR}/file-Sizes" - | uniq > "${TMP_DIR}/combined-Sizes"
     fi
 }
 
