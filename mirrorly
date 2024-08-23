@@ -49,6 +49,9 @@ trap_handler()
         "7")
             echo Error downloading dist files 1>&2
             ;;
+        "8")
+            echo Error downloading release files 1>&2
+            ;;
         "254")
             echo Ran out of retry attempts 1>&2
             ;;
@@ -211,8 +214,8 @@ get_release_files()
         for FILE in "${RELEASE_FILES[@]}"; do
             local URL="${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${FILE}"
             local OUTPUT="${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/${FILE}"
-            mkdir -p "$(dirname "${OUTPUT}")"
-            curl --retry "${NUM_RETRIES}" -fsSL -o "${OUTPUT}" "${URL}"
+            mkdir -p "$(dirname "${OUTPUT}")" || exit 2
+            curl --retry-connrefused --retry "${NUM_RETRIES}" -fsSL -o "${OUTPUT}" "${URL}" || exit 8
         done
         local EXCLUDE=""
         EXCLUDE=$(awk -v arch="${ARCH}" '/Architectures/ {for (i=2; i<NF; i++) if ($i!=arch) printf $i "|"; print $NF}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release")
@@ -274,6 +277,7 @@ stage1b()
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/download-joblog \
             --jobs "${DL_JOBS}" \
+            --bar \
             get_file_from_repo || exit 6
         awk '{print $1"\t"$3"/"$4}' "${TMP_DIR}/need-to-download" | sort -k2 "${TMP_DIR}/file-Sizes" - | uniq > "${TMP_DIR}/combined-Sizes"
     fi
@@ -302,6 +306,7 @@ stage2a()
         --retries "${NUM_RETRIES}" \
         --joblog "${TMP_DIR}"/dist-joblog \
         --jobs "${DL_JOBS}" \
+        --bar \
         get_file_from_repo || exit 7
 }
 
@@ -314,7 +319,9 @@ stage2b()
     NUM_DELETE_FILES="$(wc -l "${TMP_DIR}/need-to-remove" | cut -d' ' -f1 | tr -d '\n')"
     if [ "${NUM_DELETE_FILES}" = "0" ]; then
         echo "No files to remove"
-        cat "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
+        if [ -f "${TMP_DIR}/combined-Sizes" ]; then
+            cat "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
+        fi
     else
         echo "Removing ${NUM_DELETE_FILES} files..."
         export MIRROR_DIR
@@ -324,6 +331,7 @@ stage2b()
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/remove-joblog \
             --jobs "${DL_JOBS}" \
+            --bar \
             rm "${MIRROR_DIR}/{2}"
         awk 'NR==FNR{del[$0];next} !($0 in del)' "${TMP_DIR}/need-to-remove" "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
     fi
