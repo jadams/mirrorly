@@ -3,20 +3,26 @@ set -Eeuo pipefail
 umask 022
 
 REDO=0
+RETRIES=0
 
 cleanup()
 {
-    if [ -z "${TMP_DIR-}" ]; then
+    if [[ -z "${TMP_DIR-}" ]]; then
         return
-    fi
-    if [ "${RC}" = "0" ]; then
-        mv "${TMP_DIR}/current-Sizes" "${MIRROR_DIR}/SIZES" 2>/dev/null || true
-        mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" 2>/dev/null || true
     fi
     rm "${TMP_DIR}"/*-Packages 2>/dev/null || true
     rm "${TMP_DIR}"/*-Release 2>/dev/null || true
     rm "${TMP_DIR}"/*-Sizes 2>/dev/null || true
     rm "${TMP_DIR}"/*-MD5sums 2>/dev/null || true
+    rm "${TMP_DIR}"/need-to-* 2>/dev/null || true
+    if [[ ! -z "${RC-}" ]]; then
+        if (( RC == 0 )); then
+            mv "${TMP_DIR}/current-Sizes" "${MIRROR_DIR}/SIZES" 2>/dev/null || true
+            mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" 2>/dev/null || true
+            rm "${TMP_DIR}"/*-joblog 2>/dev/null || true
+            rmdir "${TMP_DIR}" || true
+        fi
+    fi
 }
 
 trap_handler()
@@ -71,16 +77,16 @@ test_req()
     if ! readarray < /dev/null; then
         echo "bash does not support readarray" 1>&2; exit 1
     fi
-    if [ "$(awk -V | head -1 | cut -d' ' -f1)" != "GNU" ]; then
+    if [[ "$(awk -V | head -1 | cut -d' ' -f1)" != "GNU" ]]; then
         echo "awk is not GNU awk" 1>&2; exit 1
     fi
 }
 
 include()
 {
-    if [ -f mirrorly.conf ]; then
+    if [[ -f mirrorly.conf ]]; then
         . mirrorly.conf
-    elif [ -f /etc/mirrorly.conf ]; then
+    elif [[ -f /etc/mirrorly.conf ]]; then
         . /etc/mirrorly.conf
     else
         echo "can't find mirrorly.conf in ${PWD} or /etc" 2>&1
@@ -127,20 +133,20 @@ get_package_file_list()
         IFS=" " read -r -a CURRENT_MIRROR <<< "${MIRROR_LIST[$i]}"
         local CURRENT_MIRROR_LEN="${#CURRENT_MIRROR[@]}"
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
-        if [ "${CURRENT_MIRROR[0]}" != "deb" ]; then
+        if [[ "${CURRENT_MIRROR[0]}" != "deb" ]]; then
             echo ERROR in "${CURRENT_MIRROR[@]}" 1>&2
             exit 3
         else
             echo -n "  ${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
         fi
-        curl --retry "${NUM_RETRIES}" -fsSL -o "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release" "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/Release"
+        curl --retry "${NUM_RETRIES}" --retry-all-errors -fsSL -o "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release" "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/Release" || exit 8
         PACKAGE_FILES=()
         local j
         for (( j=3; j<"${CURRENT_MIRROR_LEN}"; j++ )); do
             CURRENT_MIRROR_J_TR=$(echo "${CURRENT_MIRROR[$j]}" | tr '/' '-')
             CURRENT_MIRROR_PACKAGE_FILE="${CURRENT_MIRROR_DISTRO}-${CURRENT_MIRROR[2]}-${CURRENT_MIRROR_J_TR}-Packages"
             echo -n "${CURRENT_MIRROR[$j]} "
-            curl --retry "${NUM_RETRIES}" -fsSL "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.gz" | gunzip > "${TMP_DIR}/${CURRENT_MIRROR_PACKAGE_FILE}"
+            curl --retry "${NUM_RETRIES}" --retry-all-errors -fsSL "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.gz" | gunzip > "${TMP_DIR}/${CURRENT_MIRROR_PACKAGE_FILE}" || exit 8
             PACKAGE_FILES+=("${CURRENT_MIRROR_PACKAGE_FILE}")
         done
         echo
@@ -155,12 +161,12 @@ get_package_file_list()
 
 get_local_file_list()
 {
-    if [ -f "${MIRROR_DIR}/SIZES" ]; then
+    if [[ -f "${MIRROR_DIR}/SIZES" ]]; then
         mv "${MIRROR_DIR}/SIZES" "${TMP_DIR}/file-Sizes"
     else
         for DISTRO in "${DISTROS[@]}"; do
             echo "  ${MIRROR_DIR}/${DISTRO}"
-            if [ -d "${MIRROR_DIR}/${DISTRO}/pool" ]; then
+            if [[ -d "${MIRROR_DIR}/${DISTRO}/pool" ]]; then
                 (cd "${MIRROR_DIR}" && find "${DISTRO}/pool" -type f -ls | awk '{print $7"\t"$11}' >> "${TMP_DIR}/find-TMP-Sizes")
             else
                 touch "${TMP_DIR}/find-TMP-Sizes"
@@ -180,20 +186,20 @@ get_file_from_repo()
     local OUTPUT="${MIRROR_DIR}/${DISTRO}/${FILENAME}"
     local URL="${MIRROR}/${FILENAME}"
     local STAT=0
-    if [ ! -f "${OUTPUT}" ]; then
+    if [[ ! -f "${OUTPUT}" ]]; then
         mkdir -p "$(dirname "${OUTPUT}")"
-        if [ "$(curl -fsL -w "%{http_code}" -o "${OUTPUT}" "${URL}")" = "404" ]; then
+        if [[ "$(curl -fsL -w "%{http_code}" -o "${OUTPUT}" "${URL}")" == "404" ]]; then
             exit 0
         fi
     fi
     STAT=$(stat -c %s "${OUTPUT}" 2>/dev/null || echo "0")
-    if [ "${STAT}" -ne "${SIZE}" ]; then
+    if [[ "${STAT}" -ne "${SIZE}" ]]; then
         rm "${OUTPUT}" 2>/dev/null
         exit 1
     fi
-    if [ -n "${MD5SUM}" ]; then
+    if [[ -n "${MD5SUM}" ]]; then
         DL_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
-        if [ "${MD5SUM}" != "${DL_MD5SUM}" ]; then
+        if [[ "${MD5SUM}" != "${DL_MD5SUM}" ]]; then
             rm "${OUTPUT}" 2>/dev/null
             exit 2
         fi
@@ -215,19 +221,20 @@ get_release_files()
             local URL="${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${FILE}"
             local OUTPUT="${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/${FILE}"
             mkdir -p "$(dirname "${OUTPUT}")" || exit 2
-            curl --retry-connrefused --retry "${NUM_RETRIES}" -fsSL -o "${OUTPUT}" "${URL}" || exit 8
+            curl --retry "${NUM_RETRIES}" --retry-all-errors -fsSL -o "${OUTPUT}" "${URL}" || exit 8
         done
         local EXCLUDE=""
         EXCLUDE=$(awk -v arch="${ARCH}" '/Architectures/ {for (i=2; i<NF; i++) if ($i!=arch) printf $i "|"; print $NF}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release")
-        awk -v excl="${EXCLUDE}" -v url="${CURRENT_MIRROR[1]}" -v distro="${CURRENT_MIRROR_DISTRO}" -v rel="${CURRENT_MIRROR[2]}" '/MD5/{flag=1;next}/SHA1/{flag=0}flag && $0 !~ excl {print $2"\t"url"\t"distro"\tdists/"rel"/"$3"\t"$1}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" >> "${TMP_DIR}/dists-MD5sums"
-        if ! cmp -s "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release"; then ((REDO++)); fi
+        awk -v excl="${EXCLUDE}" -v url="${CURRENT_MIRROR[1]}" -v distro="${CURRENT_MIRROR_DISTRO}" -v rel="${CURRENT_MIRROR[2]}" '/MD5/{flag=1;next}/SHA1/{flag=0}flag && $0 !~ excl {print $2"\t"url"\t"distro"\tdists/"rel"/"$3"\t"$1}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" >> "${TMP_DIR}/dists-TMP-MD5sums"
+        cmp -s "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release" || (( REDO++ )) || true
         echo
     done
+    sort -k5 "${TMP_DIR}/dists-TMP-MD5sums" | uniq > "${TMP_DIR}/dists-MD5sums" && rm "${TMP_DIR}/dists-TMP-MD5sums"
 }
 
 check_md5sums()
 {
-    if [ -f "${MIRROR_DIR}/MD5SUMS" ]; then
+    if [[ -f "${MIRROR_DIR}/MD5SUMS" ]]; then
         (cd "${MIRROR_DIR}"; parallel 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
     else
         echo "${MIRROR_DIR}/MD5SUMS does not exist, please do a successful sync first" 1>&2
@@ -255,7 +262,7 @@ stage1a()
 stage1b()
 {
     echo "Sorting list of files to download..."
-    if [ "$(wc -l "${TMP_DIR}/file-Sizes" | cut -d' ' -f1)" = "0" ]; then
+    if [[ "$(wc -l "${TMP_DIR}/file-Sizes" | cut -d' ' -f1)" == "0" ]]; then
         cat "${TMP_DIR}/pool-Sizes" > "${TMP_DIR}/need-to-download"
     else
         awk -F'\t' 'FNR==NR {a[$2]=$1; next} !($3"/"$4 in a) || a[$3"/"$4] != $1' "${TMP_DIR}/file-Sizes" "${TMP_DIR}/pool-Sizes" > "${TMP_DIR}/need-to-download"
@@ -263,7 +270,7 @@ stage1b()
 
     local NUM_DOWNLOAD_FILES=0
     NUM_DOWNLOAD_FILES="$(wc -l "${TMP_DIR}/need-to-download" | cut -d' ' -f1 | tr -d '\n')"
-    if [ "${NUM_DOWNLOAD_FILES}" = "0" ]; then
+    if (( NUM_DOWNLOAD_FILES == 0 )); then
         echo "No files to download"
         sort -k2 "${TMP_DIR}/file-Sizes" | uniq > "${TMP_DIR}/combined-Sizes"
     else
@@ -317,9 +324,9 @@ stage2b()
 
     local NUM_DELETE_FILES=0
     NUM_DELETE_FILES="$(wc -l "${TMP_DIR}/need-to-remove" | cut -d' ' -f1 | tr -d '\n')"
-    if [ "${NUM_DELETE_FILES}" = "0" ]; then
+    if (( NUM_DELETE_FILES == 0 )); then
         echo "No files to remove"
-        if [ -f "${TMP_DIR}/combined-Sizes" ]; then
+        if [[ -f "${TMP_DIR}/combined-Sizes" ]]; then
             cat "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
         fi
     else
@@ -349,24 +356,12 @@ run_stages()
     done
 }
 
-main()
+check_redo()
 {
-    trap trap_handler EXIT TERM HUP INT QUIT
-    STAGES=(stage0)
-    if [ "${1-}" = "-h" ]; then
-        STAGES=(usage)
-    elif [ "${1-}" = "-c" ]; then
-        STAGES+=(check_md5sums)
-    elif [ "${1-}" = "-1" ]; then
-        STAGES+=(stage1)
-    elif [ "${1-}" = "-2" ]; then
-        STAGES+=(stage1a stage2)
-    else
-        STAGES+=(stage1 stage2)
-    fi
-    run_stages
-    if [ "${REDO}" != "0" ]; then
-        if (( REDO > NUM_RETRIES )); then
+    if (( REDO > 0 )); then
+        REDO=0
+        (( RETRIES++ )) || true
+        if (( RETRIES > NUM_RETRIES )); then
             echo "Tried ${NUM_RETRIES} times, giving up" 1>&2
             exit 254
         fi
@@ -374,6 +369,25 @@ main()
         cleanup
         main "$@"
     fi
+}
+
+main()
+{
+    trap trap_handler EXIT TERM HUP INT QUIT
+    STAGES=(stage0)
+    if [[ "${1-}" == "-h" ]]; then
+        STAGES=(usage)
+    elif [[ "${1-}" == "-c" ]]; then
+        STAGES+=(check_md5sums)
+    elif [[ "${1-}" == "-1" ]]; then
+        STAGES+=(stage1)
+    elif [[ "${1-}" == "-2" ]]; then
+        STAGES+=(stage1a stage2)
+    else
+        STAGES+=(stage1 stage2)
+    fi
+    run_stages
+    check_redo "$@"
 }
 
 main "$@"
