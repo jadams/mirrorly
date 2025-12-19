@@ -163,7 +163,7 @@ get_release_files()
         if ! cmp -s "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release" "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release"; then REDO=1; fi
         local j
         for (( j=3; j<"${CURRENT_MIRROR_LEN}"; j++ )); do
-            local DIST_FILES=("Contents-${ARCH}.gz" "${CURRENT_MIRROR[$j]}/Contents-${ARCH}.gz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.gz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.xz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Release" "${CURRENT_MIRROR[$j]}/cnf/Commands-${ARCH}.xz")
+            local DIST_FILES=("Contents-${ARCH}.gz" "${CURRENT_MIRROR[$j]}/Contents-${ARCH}.gz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.gz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.xz" "${CURRENT_MIRROR[$j]}/binary-${ARCH}/Release" "${CURRENT_MIRROR[$j]}/cnf/Commands-${ARCH}.xz" "${CURRENT_MIRROR[$j]}/i18n/Translation-en.gz" "${CURRENT_MIRROR[$j]}/i18n/Translation-en.xz" "${CURRENT_MIRROR[$j]}/dep11/Components-amd64.yml.gz" "${CURRENT_MIRROR[$j]}/dep11/Components-amd64.yml.xz" "${CURRENT_MIRROR[$j]}/dep11/icons-128x128.tar.gz" "${CURRENT_MIRROR[$j]}/dep11/icons-128x128@2.tar.gz" "${CURRENT_MIRROR[$j]}/dep11/icons-48x48.tar.gz" "${CURRENT_MIRROR[$j]}/dep11/icons-48x48@2.tar.gz" "${CURRENT_MIRROR[$j]}/dep11/icons-64x64.tar.gz" "${CURRENT_MIRROR[$j]}/dep11/icons-64x64@2.tar.gz")
             echo -n "${CURRENT_MIRROR[$j]} "
             for DIST_FILE in "${DIST_FILES[@]}"; do
                 local URL="${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${DIST_FILE}"
