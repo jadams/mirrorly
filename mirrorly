@@ -15,7 +15,7 @@ cleanup() {
 
 test_req()
 {
-    reqs=(rm mkdir curl gunzip paste awk parallel touch sort uniq head cut tr)
+    reqs=(rm mkdir curl gunzip paste awk parallel touch sort uniq head cut tr wc)
     for req in "${reqs[@]}"; do
         if ! which "${req}" &>/dev/null; then echo "${req}" not installed 1>&2; exit 1; fi
     done
@@ -197,7 +197,7 @@ stage0()
     get_mirrors_from_list
 }
 
-stage1()
+stage1a()
 {
     echo "Collecting package indices..."
     get_package_file_list
@@ -205,6 +205,8 @@ stage1()
     echo "Checking local files..."
     get_local_file_list
 
+stage1b()
+{
     echo "Sorting list of files to download..."
     if [ $(wc -l "${TMP_DIR}/find-Sizes" | cut -d' ' -f1) = "0" ]; then
         cat "${TMP_DIR}/pool-Args" > "${TMP_DIR}/need-to-download"
@@ -228,6 +230,12 @@ stage1()
             get_file_from_repo
     fi
 
+}
+
+stage1()
+{
+    stage1a
+    stage1b
 }
 
 stage2()
@@ -265,7 +273,7 @@ main()
     elif [ "${1}" = "-1" ]; then
         STAGES+=(stage1)
     elif [ "${1}" = "-2" ]; then
-        STAGES+=(stage2)
+        STAGES+=(stage1a stage2)
     else
         STAGES+=(stage1 stage2)
     fi
