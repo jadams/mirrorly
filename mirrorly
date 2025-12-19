@@ -9,7 +9,7 @@ cleanup()
     if [ "${RC}" = "0" ]; then
         rm "${TMP_DIR}/pool-Args" 2>/dev/null || true
         rm "${TMP_DIR}/find-Sizes" 2>/dev/null || true
-        mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" 2>/dev/null || true
+        sort "${TMP_DIR}/pool-MD5sums" | uniq > "${MIRROR_DIR}/MD5SUMS" && rm "${TMP_DIR}/pool-MD5sums" 2>/dev/null || true
     fi
 }
 
