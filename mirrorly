@@ -4,13 +4,13 @@ umask 022
 
 cleanup()
 {
-    rm "${TMP_DIR}"/*-Packages 2>/dev/null || true
-    rm "${TMP_DIR}"/*-Release 2>/dev/null || true
     if [ "${RC}" = "0" ]; then
-        rm "${TMP_DIR}/pool-Sizes" 2>/dev/null || true
-        rm "${TMP_DIR}/file-Sizes" 2>/dev/null || true
+        mv "${TMP_DIR}/current-Sizes" "${MIRROR_DIR}/SIZES" || true
         mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" || true
     fi
+    rm "${TMP_DIR}"/*-Packages 2>/dev/null || true
+    rm "${TMP_DIR}"/*-Release 2>/dev/null || true
+    rm "${TMP_DIR}"/*-Sizes 2>/dev/null || true
 }
 
 trap_handler()
@@ -92,14 +92,14 @@ get_package_file_list()
         else
             echo -n "  ${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
         fi
-        curl -fsSL -o "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release" "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/Release"
+        curl --retry "${NUM_RETRIES}" -fsSL -o "${TMP_DIR}/${CURRENT_MIRROR[2]}-Release" "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/Release"
         PACKAGE_FILES=()
         local j
         for (( j=3; j<"${CURRENT_MIRROR_LEN}"; j++ )); do
             CURRENT_MIRROR_J_TR=$(echo "${CURRENT_MIRROR[$j]}" | tr '/' '-')
             CURRENT_MIRROR_PACKAGE_FILE="${CURRENT_MIRROR_DISTRO}-${CURRENT_MIRROR[2]}-${CURRENT_MIRROR_J_TR}-Packages"
             echo -n "${CURRENT_MIRROR[$j]} "
-            curl -fsSL "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.gz" | gunzip > "${TMP_DIR}/${CURRENT_MIRROR_PACKAGE_FILE}"
+            curl --retry "${NUM_RETRIES}" -fsSL "${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${CURRENT_MIRROR[$j]}/binary-${ARCH}/Packages.gz" | gunzip > "${TMP_DIR}/${CURRENT_MIRROR_PACKAGE_FILE}"
             PACKAGE_FILES+=("${CURRENT_MIRROR_PACKAGE_FILE}")
         done
         echo
@@ -114,8 +114,8 @@ get_package_file_list()
 
 get_local_file_list()
 {
-    if [ -f "${MIRROR_DIR}/file-Sizes" ]; then
-        mv "${MIRROR_DIR}/file-Sizes" "${TMP_DIR}/file-Sizes"
+    if [ -f "${MIRROR_DIR}/SIZES" ]; then
+        mv "${MIRROR_DIR}/SIZES" "${TMP_DIR}/file-Sizes"
     else
         for DISTRO in "${DISTROS[@]}"; do
             echo "  ${MIRROR_DIR}/${DISTRO}"
@@ -139,39 +139,47 @@ get_file_from_repo()
     local MD5SUM="${5}"
     local OUTPUT="${MIRROR_DIR}/${DISTRO}/${FILENAME}"
     local URL="${MIRROR}/${FILENAME}"
+    local STATUS=""
+    local STAT=0
     if [ ! -f "${OUTPUT}" ]; then
         mkdir -p "$(dirname "${OUTPUT}")"
         if [ $(curl -fsL -w "%{http_code}" -o "${OUTPUT}" "${URL}") = "404" ]; then
             RC=0
-            return $RC
+            exit "${RC}"
+        else
+            STATUS="+"
         fi
     fi
-    local STAT=0
     STAT=$(stat -c %s "${OUTPUT}" 2>/dev/null || echo "0")
     if [ "${STAT}" -ne "${SIZE}" ]; then
-        echo -n "SIZE NOT MATCHED: " 1>&2
-        echo "${FILENAME}" 1>&2
         rm "${OUTPUT}" 2>/dev/null
+        STATUS="-"
         RC=1
-        return $RC
+        echo -n "${STATUS}"
+        exit "${RC}"
     else
-        echo -e "${SIZE}\t${OUTPUT}" >> "${TMP_DIR}/download-Sizes"
+        if [ -z "${STATUS}" ]; then
+            STATUS="."
+        fi
         RC=0
     fi
-    if [ ! -z "${5}" ]; then
+    if [ ! -z "${MD5SUM}" ]; then
         DL_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
         if [ "${MD5SUM}" != "${DL_MD5SUM}" ]; then
-            echo -n "MD5 NOT MATCHED: " 1>&2
-            echo "${FILENAME}" 1>&2
             rm "${OUTPUT}" 2>/dev/null
-            RC=1
-            return $RC
+            STATUS="-"
+            RC=2
+            echo -n "${STATUS}"
+            exit "${RC}"
         else
-            echo -e "${DL_MD5SUM}\t${OUTPUT}" >> "${TMP_DIR}/download-MD5sums"
+            if [ -z "${STATUS}" ]; then
+                STATUS="*"
+            fi
             RC=0
         fi
     fi
-    return $RC
+    echo -n "${STATUS}"
+    exit "${RC}"
 }
 
 get_release_files()
@@ -188,7 +196,7 @@ get_release_files()
             local URL="${CURRENT_MIRROR[1]}/dists/${CURRENT_MIRROR[2]}/${FILE}"
             local OUTPUT="${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/${FILE}"
             mkdir -p "$(dirname "${OUTPUT}")"
-            curl -fsSL -o "${OUTPUT}" "${URL}"
+            curl --retry "${NUM_RETRIES}" -fsSL -o "${OUTPUT}" "${URL}"
         done
         local EXCLUDE=""
         EXCLUDE=$(awk -v arch="${ARCH}" '/Architectures/ {for (i=2; i<NF; i++) if ($i!=arch) printf $i "|"; print $NF}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release")
@@ -201,7 +209,7 @@ get_release_files()
 check_md5sums()
 {
     if [ -f "${MIRROR_DIR}/MD5SUMS" ]; then
-        (cd "${MIRROR_DIR}"; parallel --jobs 1000% --eta 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
+        (cd "${MIRROR_DIR}"; parallel --jobs 200% 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
     else
         echo "${MIRROR_DIR}/MD5SUMS does not exist, please do a successful sync first" 1>&2
         exit 5
@@ -238,6 +246,7 @@ stage1b()
     NUM_DOWNLOAD_FILES="$(wc -l "${TMP_DIR}/need-to-download" | cut -d' ' -f1 | tr -d '\n')"
     if [ "${NUM_DOWNLOAD_FILES}" = "0" ]; then
         echo "No files to download"
+        sort -k2 "${TMP_DIR}/file-Sizes" | uniq > "${TMP_DIR}/combined-Sizes"
     else
         echo "Downloading ${NUM_DOWNLOAD_FILES} files..."
         export MIRROR_DIR
@@ -248,10 +257,10 @@ stage1b()
             --colsep '\t' \
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/download-joblog \
-            --eta \
-            --jobs 1000% \
+            --jobs 200% \
             get_file_from_repo
-        # sort -k2 "${TMP_DIR}/download-Sizes" | uniq > "${MIRROR_DIR}/file-Sizes" && rm "${TMP_DIR}/download-Sizes"
+        echo
+        sort -k2 "${TMP_DIR}/file-Sizes" "${TMP_DIR}/need-to-download" | uniq > "${TMP_DIR}/combined-Sizes"
     fi
 }
 
@@ -275,9 +284,9 @@ stage2a()
         --colsep '\t' \
         --retries "${NUM_RETRIES}" \
         --joblog "${TMP_DIR}"/dist-joblog \
-        --eta \
-        --jobs 1000% \
+        --jobs 200% \
         get_file_from_repo
+    echo
 }
 
 stage2b()
@@ -289,6 +298,7 @@ stage2b()
     NUM_DELETE_FILES="$(wc -l "${TMP_DIR}/need-to-remove" | cut -d' ' -f1 | tr -d '\n')"
     if [ "${NUM_DELETE_FILES}" = "0" ]; then
         echo "No files to remove"
+        cat "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
     else
         echo "Removing ${NUM_DELETE_FILES} files..."
         export MIRROR_DIR
@@ -297,9 +307,9 @@ stage2b()
             --colsep '\t' \
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/remove-joblog \
-            --eta \
-            --jobs 1000% \
+            --jobs 200% \
             rm "${MIRROR_DIR}/{2}"
+        awk 'NR==FNR{del[$0];next} !($0 in del)' "${TMP_DIR}/need-to-remove" "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
     fi
 }
 
@@ -333,10 +343,11 @@ main()
         STAGES+=(stage1 stage2)
     fi
     run_stages
+    echo "Need to redo: ${REDO}"
     if [ "${REDO}" != "0" ]; then
         echo Release file has changed, rerunning...
         cleanup
-        run_stages
+        main "$@"
     fi
 }
 
