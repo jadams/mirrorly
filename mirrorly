@@ -66,7 +66,7 @@ get_mirrors_from_list()
 {
     readarray -t MIRROR_LIST < "${MIRROR_LIST_FILE}"
     MIRROR_LIST_LEN="${#MIRROR_LIST[@]}"
-    local DISTROS=()
+    DISTROS=()
     for MIRROR in "${MIRROR_LIST[@]}"; do
         local CURRENT_MIRROR
         IFS=" " read -r -a CURRENT_MIRROR <<< "${MIRROR}"
@@ -176,14 +176,14 @@ get_release_files()
                         if [ "${MD5SUM}" != "${L_MD5SUM}" ]; then
                             rm "${OUTPUT}"
                         fi
-                    else
+                    fi
+                    if [ ! -f "${OUTPUT}" ]; then
                         curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
                     fi
                     local DL_MD5SUM=0
                     DL_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
                     if [ "${MD5SUM}" != "${DL_MD5SUM}" ]; then
-                        echo "Error with file ${OUTPUT}" 1>&2
-                        # TODO: something to try again
+                        REDO=1
                     else
                         echo -e "${MD5SUM}\t${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/${DIST_FILE}" >> "${TMP_DIR}/pool-MD5sums"
                     fi
@@ -279,11 +279,19 @@ stage2()
     fi
 }
 
+run_stages()
+{
+    for STAGE in "${STAGES[@]}"; do
+        "${STAGE}"
+    done
+}
+
 main()
 {
     trap trap_handler EXIT TERM HUP INT QUIT
-    STAGES=(stage0)
+    RC=1
     REDO=0
+    STAGES=(stage0)
     if [ "${1-}" = "-h" ]; then
         STAGES=(usage)
     elif [ "${1-}" = "-c" ]; then
@@ -295,15 +303,11 @@ main()
     else
         STAGES+=(stage1 stage2)
     fi
-    for STAGE in "${STAGES[@]}"; do
-        "${STAGE}"
-    done
+    run_stages
     if [ "${REDO}" != "0" ]; then
         echo Release file has changed, rerunning...
-        RC=0
         cleanup
-        stage1
-        stage2
+        run_stages
     fi
 }
 
