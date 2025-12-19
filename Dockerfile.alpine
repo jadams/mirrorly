@@ -1,11 +1,11 @@
 FROM alpine:3
 RUN apk --no-cache add bash gawk curl parallel gzip
-COPY mirrorly /usr/local/bin/mirrorly
-COPY mirrorly.conf /etc/mirrorly.conf
-COPY mirror.list /etc/apt/mirror.list
 RUN adduser -g "Mirror User" -s /bin/bash -D mirror \
  && mkdir -p /mirror \
  && chown mirror:mirror /mirror
+COPY mirrorly /usr/local/bin/mirrorly
+COPY mirrorly.conf /etc/mirrorly.conf
+COPY mirror.list /etc/apt/mirror.list
 USER mirror
 VOLUME [ "/mirror" ]
 ENTRYPOINT [ "mirrorly" ]
