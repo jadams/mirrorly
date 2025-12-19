@@ -10,11 +10,13 @@ docker build -t mirrorly .
 
 ### Running with default values
 ```
+mkdir </path/to/mirror>
 docker run --rm -v </path/to/mirror>:/mirror mirrorly
 ```
 
 ### Running with custom mirrorly.conf and mirror.list
 ```
+mkdir </path/to/mirror>
 docker run --rm -v </path/to/mirror>:/mirror -v </path/to/mirrorly.conf>:/etc/mirrorly.conf -v </path/to/mirror.list>:/etc/apt/mirror.list mirrorly
 ```
 
