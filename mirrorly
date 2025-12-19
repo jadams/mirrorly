@@ -193,7 +193,7 @@ get_release_files()
 check_md5sums()
 {
     if [ -f "${MIRROR_DIR}/MD5SUMS" ]; then
-        (cd "${MIRROR_DIR}"; parallel --bar 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
+        (cd "${MIRROR_DIR}"; parallel --jobs 1000% --bar 'echo {} | md5sum --check --quiet' :::: MD5SUMS)
     else
         echo "${MIRROR_DIR}/MD5SUMS does not exist, please do a successful sync first" 1>&2
         exit 5
@@ -240,6 +240,7 @@ stage1b()
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/download-joblog \
             --bar \
+            --jobs 1000% \
             get_file_from_repo
     fi
 }
@@ -262,8 +263,9 @@ stage2a()
         --arg-file "${TMP_DIR}"/dists-MD5sums \
         --colsep '\t' \
         --retries "${NUM_RETRIES}" \
-        --joblog "${TMP_DIR}"/download-joblog \
+        --joblog "${TMP_DIR}"/dist-joblog \
         --bar \
+        --jobs 1000% \
         get_file_from_repo
 }
 
@@ -285,6 +287,7 @@ stage2b()
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/remove-joblog \
             --bar \
+            --jobs 1000% \
             rm "${MIRROR_DIR}/{2}"
     fi
 }
