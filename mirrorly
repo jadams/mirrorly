@@ -29,7 +29,7 @@ test_req()
     if ! readarray < /dev/null; then
         echo "bash does not support readarray" 1>&2; exit 1
     fi
-    if [ $(awk -V | head -1 | cut -d' ' -f1) != "GNU" ]; then
+    if [ "$(awk -V | head -1 | cut -d' ' -f1)" != "GNU" ]; then
         echo "awk is not GNU awk" 1>&2; exit 1
     fi
 }
@@ -66,20 +66,23 @@ get_mirrors_from_list()
 {
     readarray -t MIRROR_LIST < "${MIRROR_LIST_FILE}"
     MIRROR_LIST_LEN="${#MIRROR_LIST[@]}"
-    local LIST_DISTROS=()
+    local DISTROS=()
     for MIRROR in "${MIRROR_LIST[@]}"; do
-        local CURRENT_MIRROR=(${MIRROR})
+        local CURRENT_MIRROR
+        IFS=" " read -r -a CURRENT_MIRROR <<< "${MIRROR}"
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
-        LIST_DISTROS+=(${CURRENT_MIRROR_DISTRO})
+        DISTROS+=("${CURRENT_MIRROR_DISTRO}")
     done
-    DISTROS=($(for DISTRO in "${LIST_DISTROS[@]}"; do echo "${DISTRO}"; done | sort -u))
+    IFS=" " read -r -a DISTROS <<< "$(echo "${DISTROS[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+    echo "${DISTROS[@]}"
 }
 
 get_package_file_list()
 {
     local i
-    for (( i=0; i<$MIRROR_LIST_LEN; i++ )); do
-        local CURRENT_MIRROR=(${MIRROR_LIST[$i]})
+    for (( i=0; i<MIRROR_LIST_LEN; i++ )); do
+        local CURRENT_MIRROR
+        IFS=" " read -r -a CURRENT_MIRROR <<< "${MIRROR_LIST[$i]}"
         local CURRENT_MIRROR_LEN="${#CURRENT_MIRROR[@]}"
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
         if [ "${CURRENT_MIRROR[0]}" != "deb" ]; then
@@ -131,7 +134,8 @@ get_file_from_repo()
     if [ ! -f "${OUTPUT}" ]; then
         curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
     fi
-    local STAT=$(stat -c %s "${OUTPUT}" 2>/dev/null || echo "0")
+    local STAT=0
+    STAT=$(stat -c %s "${OUTPUT}" 2>/dev/null || echo "0")
     if [ "${STAT}" -ne "${SIZE}" ]; then
         echo -n "SIZE NOT MATCHED: " 1>&2
         basename "${FILENAME}" 1>&2
@@ -145,8 +149,9 @@ get_file_from_repo()
 get_release_files()
 {
     local i
-    for (( i=0; i<$MIRROR_LIST_LEN; i++ )); do
-        local CURRENT_MIRROR=(${MIRROR_LIST[$i]})
+    for (( i=0; i<MIRROR_LIST_LEN; i++ )); do
+        local CURRENT_MIRROR
+        IFS=" " read -r -a CURRENT_MIRROR <<< "${MIRROR_LIST[$i]}"
         local CURRENT_MIRROR_LEN="${#CURRENT_MIRROR[@]}"
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
         local RELEASE_FILES=(InRelease Release Release.gpg)
@@ -167,14 +172,16 @@ get_release_files()
                 local MD5SUM
                 if MD5SUM=$(awk -v file="${DIST_FILE}" '$3 == file {print $1; rc=1; exit} END {exit !rc}' "${MIRROR_DIR}/${CURRENT_MIRROR_DISTRO}/dists/${CURRENT_MIRROR[2]}/Release"); then
                     if [ -f "${OUTPUT}" ]; then
-                        local L_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
+                        local L_MD5SUM=0
+                        L_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
                         if [ "${MD5SUM}" != "${L_MD5SUM}" ]; then
                             rm "${OUTPUT}"
                         fi
                     else
                         curl -fsSL --create-dirs -o "${OUTPUT}" "${URL}"
                     fi
-                    local DL_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
+                    local DL_MD5SUM=0
+                    DL_MD5SUM=$(md5sum "${OUTPUT}" 2>/dev/null | cut -d' ' -f1)
                     if [ "${MD5SUM}" != "${DL_MD5SUM}" ]; then
                         echo "Error with file ${OUTPUT}" 1>&2
                         # TODO: something to try again
@@ -218,13 +225,14 @@ stage1a()
 stage1b()
 {
     echo "Sorting list of files to download..."
-    if [ $(wc -l "${TMP_DIR}/find-Sizes" | cut -d' ' -f1) = "0" ]; then
+    if [ "$(wc -l "${TMP_DIR}/find-Sizes" | cut -d' ' -f1)" = "0" ]; then
         cat "${TMP_DIR}/pool-Args" > "${TMP_DIR}/need-to-download"
     else
         awk -F'\t' 'FNR==NR {a[$2]=$1; next} !($3"/"$4 in a) || a[$3"/"$4] != $1' "${TMP_DIR}/find-Sizes" "${TMP_DIR}/pool-Args" > "${TMP_DIR}/need-to-download"
     fi
 
-    local NUM_DOWNLOAD_FILES=$(wc -l "${TMP_DIR}/need-to-download" | cut -d' ' -f1 | tr -d '\n')
+    local NUM_DOWNLOAD_FILES=0
+    NUM_DOWNLOAD_FILES="$(wc -l "${TMP_DIR}/need-to-download" | cut -d' ' -f1 | tr -d '\n')"
     if [ "${NUM_DOWNLOAD_FILES}" = "0" ]; then
         echo "No files to download"
     else
@@ -255,7 +263,8 @@ stage2()
     echo "Sorting list of files to remove..."
     awk -F'\t' 'FNR==NR {a[$3"/"$4]=$1; next} !($2 in a) || a[$2] != $1' "${TMP_DIR}/pool-Args" "${TMP_DIR}/find-Sizes" > "${TMP_DIR}/need-to-remove"
 
-    local NUM_DELETE_FILES=$(wc -l "${TMP_DIR}/need-to-remove" | cut -d' ' -f1 | tr -d '\n')
+    local NUM_DELETE_FILES=0
+    NUM_DELETE_FILES="$(wc -l "${TMP_DIR}/need-to-remove" | cut -d' ' -f1 | tr -d '\n')"
     if [ "${NUM_DELETE_FILES}" = "0" ]; then
         echo "No files to remove"
     else
@@ -267,7 +276,7 @@ stage2()
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/remove-joblog \
             --bar \
-            rm "${MIRROR_DIR}"/{2}
+            rm "${MIRROR_DIR}/{2}"
     fi
 }
 
