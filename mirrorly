@@ -298,6 +298,9 @@ stage1b()
             --jobs "${DL_JOBS}" \
             "${PROGRESS}" \
             get_file_from_repo || exit 6
+        if [[ "${PROGRESS}" == "echo"* ]]; then
+            echo
+        fi
         awk '{print $1"\t"$3"/"$4}' "${TMP_DIR}/need-to-download" | sort -k2 "${TMP_DIR}/file-Sizes" - | uniq > "${TMP_DIR}/combined-Sizes"
     fi
 }
@@ -327,6 +330,9 @@ stage2a()
         --jobs "${DL_JOBS}" \
         "${PROGRESS}" \
         get_file_from_repo || exit 7
+        if [[ "${PROGRESS}" == "echo"* ]]; then
+            echo
+        fi
 }
 
 stage2b()
@@ -352,6 +358,9 @@ stage2b()
             --jobs "${DL_JOBS}" \
             "${PROGRESS}" \
             rm "${MIRROR_DIR}/{2}"
+        if [[ "${PROGRESS}" == "echo"* ]]; then
+            echo
+        fi
         awk 'NR==FNR{del[$0];next} !($0 in del)' "${TMP_DIR}/need-to-remove" "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
     fi
 }
