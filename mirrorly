@@ -121,6 +121,10 @@ get_mirrors_from_list()
     for MIRROR in "${MIRROR_LIST[@]}"; do
         local CURRENT_MIRROR
         IFS=" " read -r -a CURRENT_MIRROR <<< "${MIRROR}"
+        local CURRENT_MIRROR_LEN="${#CURRENT_MIRROR[@]}"
+        if (( CURRENT_MIRROR_LEN < 3 )); then
+            continue
+        fi
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
         DISTROS+=("${CURRENT_MIRROR_DISTRO}")
     done
@@ -134,10 +138,13 @@ get_package_file_list()
         local CURRENT_MIRROR
         IFS=" " read -r -a CURRENT_MIRROR <<< "${MIRROR_LIST[$i]}"
         local CURRENT_MIRROR_LEN="${#CURRENT_MIRROR[@]}"
+        if (( CURRENT_MIRROR_LEN < 3 )); then
+            continue
+        fi
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
         if [[ "${CURRENT_MIRROR[0]}" != "deb" ]]; then
             echo ERROR in "${CURRENT_MIRROR[@]}" 1>&2
-            exit 3
+            continue
         else
             echo -n "  ${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
         fi
@@ -216,6 +223,9 @@ get_release_files()
         local CURRENT_MIRROR
         IFS=" " read -r -a CURRENT_MIRROR <<< "${MIRROR_LIST[$i]}"
         local CURRENT_MIRROR_LEN="${#CURRENT_MIRROR[@]}"
+        if (( CURRENT_MIRROR_LEN < 3 )); then
+            continue
+        fi
         local CURRENT_MIRROR_DISTRO="${CURRENT_MIRROR[1]##*\/}"
         local RELEASE_FILES=(InRelease Release Release.gpg)
         echo -n "  ${CURRENT_MIRROR[1]} ${CURRENT_MIRROR[2]} "
