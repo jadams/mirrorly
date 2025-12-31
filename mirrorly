@@ -10,19 +10,16 @@ cleanup()
     if [[ -z "${TMP_DIR-}" ]]; then
         return
     fi
+    if [[ -n "${RC-}" ]] && (( RC == 0 )); then
+        mv "${TMP_DIR}/current-Sizes" "${MIRROR_DIR}/SIZES" 2>/dev/null || true
+        mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" 2>/dev/null || true
+        rm "${TMP_DIR}"/*-joblog 2>/dev/null || true
+    fi
     rm "${TMP_DIR}"/*-Packages 2>/dev/null || true
     rm "${TMP_DIR}"/*-Release 2>/dev/null || true
     rm "${TMP_DIR}"/*-Sizes 2>/dev/null || true
     rm "${TMP_DIR}"/*-MD5sums 2>/dev/null || true
     rm "${TMP_DIR}"/need-to-* 2>/dev/null || true
-    if [[ ! -z "${RC-}" ]]; then
-        if (( RC == 0 )); then
-            mv "${TMP_DIR}/current-Sizes" "${MIRROR_DIR}/SIZES" 2>/dev/null || true
-            mv "${TMP_DIR}/pool-MD5sums" "${MIRROR_DIR}/MD5SUMS" 2>/dev/null || true
-            rm "${TMP_DIR}"/*-joblog 2>/dev/null || true
-            rmdir "${TMP_DIR}" || true
-        fi
-    fi
 }
 
 trap_handler()
@@ -79,6 +76,11 @@ test_req()
     fi
     if [[ "$(awk -V | head -1 | cut -d' ' -f1)" != "GNU" ]]; then
         echo "awk is not GNU awk" 1>&2; exit 1
+    fi
+    if [[ -t 1 ]]; then
+        PROGRESS=--bar
+    else
+        PROGRESS='echo -n .;'
     fi
 }
 
@@ -284,7 +286,7 @@ stage1b()
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/download-joblog \
             --jobs "${DL_JOBS}" \
-            --bar \
+            "${PROGRESS}" \
             get_file_from_repo || exit 6
         awk '{print $1"\t"$3"/"$4}' "${TMP_DIR}/need-to-download" | sort -k2 "${TMP_DIR}/file-Sizes" - | uniq > "${TMP_DIR}/combined-Sizes"
     fi
@@ -313,7 +315,7 @@ stage2a()
         --retries "${NUM_RETRIES}" \
         --joblog "${TMP_DIR}"/dist-joblog \
         --jobs "${DL_JOBS}" \
-        --bar \
+        "${PROGRESS}" \
         get_file_from_repo || exit 7
 }
 
@@ -338,7 +340,7 @@ stage2b()
             --retries "${NUM_RETRIES}" \
             --joblog "${TMP_DIR}"/remove-joblog \
             --jobs "${DL_JOBS}" \
-            --bar \
+            "${PROGRESS}" \
             rm "${MIRROR_DIR}/{2}"
         awk 'NR==FNR{del[$0];next} !($0 in del)' "${TMP_DIR}/need-to-remove" "${TMP_DIR}/combined-Sizes" > "${TMP_DIR}/current-Sizes"
     fi
